@@ -3,6 +3,8 @@ build:
   cuda: "11.6"
   python_version: "3.10"
   python_packages:
+    - "requests"
+    - "wget"
     - "diffusers==0.11.1"
     - "torch==1.13.0"
     - "ftfy==6.1.1"
