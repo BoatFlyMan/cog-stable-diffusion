@@ -2,17 +2,18 @@
 
 import os
 import shutil
-from diffusers import StableDiffusionPipeline
+from diffusers import StableDiffusionPipeline, DiffusionPipeline
 
 
-MODEL_ID = "andite/anything-v4.0"#"runwayml/stable-diffusion-v1-5"
+MODEL_ID = "gsdf/Counterfeit-V2.5"#"runwayml/stable-diffusion-v1-5"
 MODEL_CACHE = "diffusers-cache"
 
 if os.path.exists(MODEL_CACHE):
     shutil.rmtree(MODEL_CACHE)
 os.makedirs(MODEL_CACHE, exist_ok=True)
 
-pipe = StableDiffusionPipeline.from_pretrained(
+pipe = DiffusionPipeline.from_pretrained(
     MODEL_ID,
+    custom_pipeline="lpw_stable_diffusion",
     cache_dir=MODEL_CACHE,
 )

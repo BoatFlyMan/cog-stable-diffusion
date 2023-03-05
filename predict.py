@@ -5,6 +5,7 @@ import torch
 from cog import BasePredictor, Input, Path
 from diffusers import (
     StableDiffusionPipeline,
+    DiffusionPipeline,
     PNDMScheduler,
     LMSDiscreteScheduler,
     DDIMScheduler,
@@ -17,49 +18,38 @@ import subprocess
 import requests
 import wget
 
+import safetensors.torch
 
-MODEL_ID = "andite/anything-v4.0"#"runwayml/stable-diffusion-v1-5"
+
+MODEL_ID = "gsdf/Counterfeit-V2.5"#"runwayml/stable-diffusion-v1-5"
 MODEL_CACHE = "diffusers-cache"
 
 
 class Predictor(BasePredictor):
     def setup(self):
+        self.embeddingdict = {}
         """Load the model into memory to make running multiple predictions efficient"""
         subprocess.run("python3 script/download-weights", shell=True, check=True)
         print("Loading pipeline...")
-        self.pipe = StableDiffusionPipeline.from_pretrained(
+        self.pipe = DiffusionPipeline.from_pretrained(
             MODEL_ID,
-            #safety_checker=safety_checker,
+            safety_checker=None,
             cache_dir=MODEL_CACHE,
             local_files_only=True,
-            torch_dtype=torch.float16
+            custom_pipeline="lpw_stable_diffusion",
+            torch_dtype=torch.float16,
         ).to("cuda")
-        self.pipe.safety_checker = lambda images, **kwargs: (images, [False] * len(images))
 
-        model_id = "sd-concepts-library/cat-toy"
-        embeds_url = f"https://huggingface.co/{model_id}/resolve/main/learned_embeds.bin"
-        os.makedirs(model_id,exist_ok = True)
-        if not os.path.exists(f"{model_id}/learned_embeds.bin"):
-            try:
-                wget.download(embeds_url, out=model_id)
-            except Exception as e:
-                raise Exception("\nFailed downloading \n\n" + repr(e))
-        token_identifier = f"https://huggingface.co/{model_id}/raw/main/token_identifier.txt"
-        response = requests.get(token_identifier)
-        token_name = response.text
-
-        try:
-            add_embedding(self.pipe, f"{model_id}/learned_embeds.bin", token_name)
-            #load_learned_embed_in_clip(f"{model_id}/learned_embeds.bin", self.pipe.text_encoder, self.pipe.tokenizer, token_name)
-        except Exception as e: 
-            raise Exception("\nFailed loading: \n\n" + repr(e))
+        install_embedding(self.pipe, self.embeddingdict, "datasets/Nerfgun3/bad_prompt", "bad_prompt_version2")
+        install_embedding(self.pipe, self.embeddingdict, "LarryAIDraw/corneo_mercy")
+        install_embedding(self.pipe, self.embeddingdict, "bad-hands-5", url="https://cdn.discordapp.com/attachments/1032948846197747731/1069660323709190195/bad-hands-5.pt", mode="other")
 
     @torch.inference_mode()
     def predict(
         self,
         prompt: str = Input(
             description="Input prompt",
-            default="a photo of an astronaut riding a horse on mars",
+            default="a spectacular moon",
         ),
         negative_prompt: str = Input(
             description="Specify things to not see in the output",
@@ -86,7 +76,7 @@ class Predictor(BasePredictor):
             default=1,
         ),
         num_inference_steps: int = Input(
-            description="Number of denoising steps", ge=1, le=500, default=50
+            description="Number of denoising steps", ge=1, le=500, default=20
         ),
         guidance_scale: float = Input(
             description="Scale for classifier-free guidance", ge=1, le=20, default=7.5
@@ -116,6 +106,21 @@ class Predictor(BasePredictor):
             raise ValueError(
                 "Maximum size is 1024x768 or 768x1024 pixels, because of memory limits. Please select a lower width or height."
             )
+        
+        print(self.embeddingdict)
+
+        for token, tokens in self.embeddingdict.items():
+            try:
+                prompt = prompt.replace(token, ", ".join(tokens))
+            except:
+                print("promt replace failed")
+            try:
+                negative_prompt = negative_prompt.replace(token, ", ".join(tokens))
+            except:
+                print("neg promt replace failed")
+
+        print(prompt)
+        print(negative_prompt)
 
         self.pipe.scheduler = make_scheduler(scheduler, self.pipe.scheduler.config)
 
@@ -159,35 +164,135 @@ def make_scheduler(name, config):
         "DPMSolverMultistep": DPMSolverMultistepScheduler.from_config(config),
     }[name]
 
-def load_learned_embed_in_clip(learned_embeds_path, text_encoder, tokenizer, token=None):
-  loaded_learned_embeds = torch.load(learned_embeds_path, map_location="cpu")
-  
-  # separate token and the embeds
-  trained_token = list(loaded_learned_embeds.keys())[0]
-  embeds = loaded_learned_embeds[trained_token]
+def load_learned_embed_in_clip(learned_embeds_path, text_encoder, tokenizer, tokename=None):
+    loaded_learned_embeds = torch.load(learned_embeds_path, map_location="cpu")
+    
+    # separate token and the embeds
+    trained_token = list(loaded_learned_embeds.keys())[0]
+    embeds = loaded_learned_embeds[trained_token]
 
-  # cast to dtype of text_encoder
-  dtype = text_encoder.get_input_embeddings().weight.dtype
-  
-  # add the token in tokenizer
-  token = token if token is not None else trained_token
-  num_added_tokens = tokenizer.add_tokens(token)
-  i = 1
-  while(num_added_tokens == 0):
-    print(f"The tokenizer already contains the token {token}.")
-    token = f"{token[:-1]}-{i}>"
-    print(f"Attempting to add the token {token}.")
+    # cast to dtype of text_encoder
+    dtype = text_encoder.get_input_embeddings().weight.dtype
+    embeds.to(dtype)
+    
+    num_tokens = embeds.shape[0]
+
+    token = [f"{tokename}-{i}" for i in range(num_tokens)]
+
     num_added_tokens = tokenizer.add_tokens(token)
-    i+=1
-  
-  # resize the token embeddings
-  text_encoder.resize_token_embeddings(len(tokenizer))
-  
-  # get the id for the token and assign the embeds
-  token_id = tokenizer.convert_tokens_to_ids(token)
-  text_encoder.get_input_embeddings().weight.data[token_id] = embeds
-  return
+    if num_added_tokens == 0:
+        raise ValueError(
+            f"The tokenizer already contains the token {token}. Please pass a different `token` that is not already in the tokenizer."
+        )
 
-def add_embedding(pipe, learned_embeds_path, token=None):
-    load_learned_embed_in_clip(learned_embeds_path, pipe.text_encoder, pipe.tokenizer, token)
+    print("added tokens!!")
+    #logger.info("added %s tokens", num_added_tokens)
+    
+    # resize the token embeddings
+    text_encoder.resize_token_embeddings(len(tokenizer))
+
+    if len(embeds.shape) == 2:
+        for i in range(embeds.shape[0]):
+            layer_embeds = embeds[i]
+            layer_token = token[i]
+            print("embedding vector for layer")
+            token_id = tokenizer.convert_tokens_to_ids(layer_token)
+            text_encoder.get_input_embeddings().weight.data[token_id] = layer_embeds
+    else:
+        token_id = tokenizer.convert_tokens_to_ids(token)
+        text_encoder.get_input_embeddings().weight.data[token_id] = embeds
+
+    return token
+
+def st_embedding(pipe, path, tokename):
+    data = torch.load(path, map_location="cpu") #safetensors.torch.load_file(path, device="cpu")
+    if 'string_to_param' in data:
+        param_dict = data['string_to_param']
+        if hasattr(param_dict, '_parameters'):
+            param_dict = getattr(param_dict, '_parameters')  # fix for torch 1.12.1 loading saved file from torch 1.11
+        #assert len(param_dict) == 1, 'embedding file has multiple terms in it'
+        emb = next(iter(param_dict.items()))[1]
+    elif type(data) == dict and type(next(iter(data.values()))) == torch.Tensor:
+        #assert len(data.keys()) == 1, 'embedding file has multiple terms in it'
+
+        emb = next(iter(data.values()))
+        if len(emb.shape) == 1:
+            emb = emb.unsqueeze(0)
+    
+    embeds = emb
+    
+    num_tokens = embeds.shape[0]
+
+    token = [f"{tokename}-{i}" for i in range(num_tokens)]
+
+    num_added_tokens = pipe.tokenizer.add_tokens(token)
+    if num_added_tokens == 0:
+        raise ValueError(
+            f"The tokenizer already contains the token {token}. Please pass a different `token` that is not already in the tokenizer."
+        )
+
+    print("added tokens!!")
+    #logger.info("added %s tokens", num_added_tokens)
+    
+    # resize the token embeddings
+    pipe.text_encoder.resize_token_embeddings(len(pipe.tokenizer))
+
+    if len(embeds.shape) == 2:
+        for i in range(embeds.shape[0]):
+            layer_embeds = embeds[i]
+            layer_token = token[i]
+            print("embedding vector for layer")
+            token_id = pipe.tokenizer.convert_tokens_to_ids(layer_token)
+            pipe.text_encoder.get_input_embeddings().weight.data[token_id] = layer_embeds
+    else:
+        token_id = pipe.tokenizer.convert_tokens_to_ids(token)
+        pipe.text_encoder.get_input_embeddings().weight.data[token_id] = embeds
+
+    return token
+
+def add_embedding(pipe, learned_embeds_path, embdict, token=None):
+    tokens = st_embedding(pipe, learned_embeds_path, token)#load_learned_embed_in_clip(learned_embeds_path, pipe.text_encoder, pipe.tokenizer, token)
+    embdict["<" + token + ">"] = tokens
     return
+
+def install_embedding(pipe, embeddingdict, model_id, model_name=None, filename=None, url=None, mode="huggingface"):
+    #model_id = "LarryAIDraw/corneo_mercy"
+    #model_name = "corneo_mercy"
+    #filename = "corneo_mercy.pt"
+    if mode == "hugginface":
+        if model_name == None:
+            model_name = model_id.split("/")[1]
+        if filename == None:
+            filename = model_name + ".pt"
+        embeds_url = f"https://huggingface.co/{model_id}/resolve/main/{filename}"
+        os.makedirs(model_id,exist_ok = True)
+        if not os.path.exists(f"{model_id}/{filename}"):
+            try:
+                wget.download(embeds_url, out=model_id)
+            except Exception as e:
+                raise Exception("\nFailed downloading \n\n" + repr(e))
+        #token_identifier = f"https://huggingface.co/{model_id}/raw/main/token_identifier.txt"
+        #response = requests.get(token_identifier)
+        token_name = model_name#"corneo_mercy"
+    elif mode == "other":
+        if model_name == None:
+            model_name = model_id
+        if filename == None:
+            filename = model_name + ".pt"
+        embeds_url = url
+        os.makedirs(model_id,exist_ok = True)
+        if not os.path.exists(f"{model_id}/{filename}"):
+            try:
+                wget.download(embeds_url, out=model_id)
+            except Exception as e:
+                raise Exception("\nFailed downloading \n\n" + repr(e))
+        #token_identifier = f"https://huggingface.co/{model_id}/raw/main/token_identifier.txt"
+        #response = requests.get(token_identifier)
+        token_name = model_name#"corneo_mercy"
+
+    try:
+        add_embedding(pipe, f"{model_id}/{filename}", embeddingdict, token_name)
+        #load_learned_embed_in_clip(f"{model_id}/EasyNegative.pt", self.pipe.text_encoder, self.pipe.tokenizer, token_name)
+        #st_embedding(self.pipe, f"{model_id}/EasyNegative.safetensors")
+    except Exception as e: 
+        raise Exception("\nFailed loading: \n\n" + repr(e))
