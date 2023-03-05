@@ -21,7 +21,7 @@ import wget
 import safetensors.torch
 
 
-MODEL_ID = "gsdf/Counterfeit-V2.5"#"runwayml/stable-diffusion-v1-5"
+MODEL_ID = "jo32/coreml-grapefruit-vae-swapped"#"runwayml/stable-diffusion-v1-5"
 MODEL_CACHE = "diffusers-cache"
 
 
@@ -40,9 +40,10 @@ class Predictor(BasePredictor):
             torch_dtype=torch.float16,
         ).to("cuda")
 
-        install_embedding(self.pipe, self.embeddingdict, "datasets/Nerfgun3/bad_prompt", "bad_prompt_version2")
-        install_embedding(self.pipe, self.embeddingdict, "LarryAIDraw/corneo_mercy")
-        install_embedding(self.pipe, self.embeddingdict, "bad-hands-5", url="https://cdn.discordapp.com/attachments/1032948846197747731/1069660323709190195/bad-hands-5.pt", mode="other")
+        install_embedding(self.pipe, self.embeddingdict, model_id="datasets/Nerfgun3/bad_prompt", model_name="bad_prompt_version2")
+        install_embedding(self.pipe, self.embeddingdict, model_id="LarryAIDraw/corneo_mercy")
+        install_embedding(self.pipe, self.embeddingdict, model_id="datasets/gsdf/EasyNegative")
+        #install_embedding(self.pipe, self.embeddingdict, model_id="bad-hands-5", url="https://cdn.discordapp.com/attachments/1032948846197747731/1069660323709190195/bad-hands-5.pt", mode="other")
 
     @torch.inference_mode()
     def predict(
@@ -259,9 +260,10 @@ def install_embedding(pipe, embeddingdict, model_id, model_name=None, filename=N
     #model_id = "LarryAIDraw/corneo_mercy"
     #model_name = "corneo_mercy"
     #filename = "corneo_mercy.pt"
-    if mode == "hugginface":
+    token_name = "a"
+    if mode == "huggingface":
         if model_name == None:
-            model_name = model_id.split("/")[1]
+            model_name = model_id.split("/")[-1]
         if filename == None:
             filename = model_name + ".pt"
         embeds_url = f"https://huggingface.co/{model_id}/resolve/main/{filename}"

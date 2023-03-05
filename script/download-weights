@@ -5,7 +5,7 @@ import shutil
 from diffusers import StableDiffusionPipeline, DiffusionPipeline
 
 
-MODEL_ID = "gsdf/Counterfeit-V2.5"#"runwayml/stable-diffusion-v1-5"
+MODEL_ID = "jo32/coreml-grapefruit-vae-swapped"#"runwayml/stable-diffusion-v1-5"
 MODEL_CACHE = "diffusers-cache"
 
 if os.path.exists(MODEL_CACHE):
