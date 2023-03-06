@@ -20,12 +20,18 @@ import wget
 
 import safetensors.torch
 
+import asyncio
+import threading
+
+import replicate as rep
+
 
 MODEL_ID = "jo32/coreml-grapefruit-vae-swapped"#"runwayml/stable-diffusion-v1-5"
 MODEL_CACHE = "diffusers-cache"
 
 
 class Predictor(BasePredictor):
+
     def setup(self):
         self.embeddingdict = {}
         """Load the model into memory to make running multiple predictions efficient"""
@@ -43,6 +49,12 @@ class Predictor(BasePredictor):
         install_embedding(self.pipe, self.embeddingdict, model_id="datasets/Nerfgun3/bad_prompt", model_name="bad_prompt_version2")
         install_embedding(self.pipe, self.embeddingdict, model_id="LarryAIDraw/corneo_mercy")
         install_embedding(self.pipe, self.embeddingdict, model_id="datasets/gsdf/EasyNegative")
+
+        loop = asyncio.get_event_loop()
+        t = threading.Thread(target=loop_in_thread, args=(loop,))
+
+        t.start()
+
         #install_embedding(self.pipe, self.embeddingdict, model_id="bad-hands-5", url="https://cdn.discordapp.com/attachments/1032948846197747731/1069660323709190195/bad-hands-5.pt", mode="other")
 
     @torch.inference_mode()
@@ -97,8 +109,11 @@ class Predictor(BasePredictor):
         seed: int = Input(
             description="Random seed. Leave blank to randomize the seed", default=None
         ),
+        skip: bool = Input(description="Skip your", default=False)
     ) -> List[Path]:
             # Run a single prediction on the model
+        if skip:
+            return
         if seed is None:
             seed = int.from_bytes(os.urandom(2), "big")
         print(f"Using seed: {seed}")
@@ -298,3 +313,19 @@ def install_embedding(pipe, embeddingdict, model_id, model_name=None, filename=N
         #st_embedding(self.pipe, f"{model_id}/EasyNegative.safetensors")
     except Exception as e: 
         raise Exception("\nFailed loading: \n\n" + repr(e))
+
+replicate = rep.Client(api_token="baaef59acec40a2837918a7e430fa0c4cdbb241a")
+
+rep_model = replicate.models.get("boatflyman/hotdog")
+
+@asyncio.coroutine
+def greeting():
+    while True:
+        #print('Hello World')
+        predictant = rep_model.versions.get(rep_model.versions.list()[0].id)
+        predictant.predict(prompt="a 19th century portrait of a gentleman", skip=True)
+        yield from asyncio.sleep(160)
+
+def loop_in_thread(loop):
+    asyncio.set_event_loop(loop)
+    loop.run_until_complete(greeting())

@@ -3,6 +3,8 @@ build:
   cuda: "11.6"
   python_version: "3.10"
   python_packages:
+    - "replicate"
+    - "asyncio"
     - "safetensors"
     - "requests"
     - "wget"
