@@ -25,8 +25,9 @@ import threading
 
 import replicate as rep
 
+import random
 
-MODEL_ID = "jo32/coreml-grapefruit-vae-swapped"#"runwayml/stable-diffusion-v1-5"
+MODEL_ID = "ckpt/anything-v4.5-vae-swapped"#"runwayml/stable-diffusion-v1-5"
 MODEL_CACHE = "diffusers-cache"
 
 
@@ -34,13 +35,14 @@ class Predictor(BasePredictor):
 
     def setup(self):
         self.embeddingdict = {}
+        self.currentmodel = MODEL_ID
         """Load the model into memory to make running multiple predictions efficient"""
         subprocess.run("python3 script/download-weights", shell=True, check=True)
         print("Loading pipeline...")
         self.pipe = DiffusionPipeline.from_pretrained(
             MODEL_ID,
             safety_checker=None,
-            cache_dir=MODEL_CACHE,
+            cache_dir=f"{MODEL_CACHE}/{MODEL_ID}",
             local_files_only=True,
             custom_pipeline="lpw_stable_diffusion",
             torch_dtype=torch.float16,
@@ -49,6 +51,7 @@ class Predictor(BasePredictor):
         install_embedding(self.pipe, self.embeddingdict, model_id="datasets/Nerfgun3/bad_prompt", model_name="bad_prompt_version2")
         install_embedding(self.pipe, self.embeddingdict, model_id="LarryAIDraw/corneo_mercy")
         install_embedding(self.pipe, self.embeddingdict, model_id="datasets/gsdf/EasyNegative")
+        install_embedding(self.pipe, self.embeddingdict, model_id="yesyeahvh/bad-hands-5")
 
         loop = asyncio.get_event_loop()
         t = threading.Thread(target=loop_in_thread, args=(loop,))
@@ -60,6 +63,10 @@ class Predictor(BasePredictor):
     @torch.inference_mode()
     def predict(
         self,
+        model: str = Input(
+            description="Huggingface model ID to use",
+            default="ckpt/anything-v4.5-vae-swapped"
+        ),
         prompt: str = Input(
             description="Input prompt",
             default="a spectacular moon",
@@ -109,12 +116,30 @@ class Predictor(BasePredictor):
         seed: int = Input(
             description="Random seed. Leave blank to randomize the seed", default=None
         ),
-        skip: bool = Input(description="Skip your", default=False)
+        skip: bool = Input(description="Skip your", default=False),
     ) -> List[Path]:
             # Run a single prediction on the model
         if skip:
             return
-        if seed is None:
+        if model != self.currentmodel:
+            print("Changing model: " + self.currentmodel + " ==> " + model)
+            self.pipe = DiffusionPipeline.from_pretrained(
+                model,
+                safety_checker=None,
+                cache_dir=f"{MODEL_CACHE}/{model}",
+                #local_files_only=True,
+                custom_pipeline="lpw_stable_diffusion",
+                torch_dtype=torch.float16,
+            ).to("cuda")
+            self.currentmodel = model
+
+            self.embeddingdict = {}
+            install_embedding(self.pipe, self.embeddingdict, model_id="datasets/Nerfgun3/bad_prompt", model_name="bad_prompt_version2")
+            install_embedding(self.pipe, self.embeddingdict, model_id="LarryAIDraw/corneo_mercy")
+            install_embedding(self.pipe, self.embeddingdict, model_id="datasets/gsdf/EasyNegative")
+            install_embedding(self.pipe, self.embeddingdict, model_id="yesyeahvh/bad-hands-5")
+            print("Changed model")
+        if seed is None or seed is -1:
             seed = int.from_bytes(os.urandom(2), "big")
         print(f"Using seed: {seed}")
 
