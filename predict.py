@@ -149,7 +149,7 @@ class Predictor(BasePredictor):
                 "Maximum size is 1024x768 or 768x1024 pixels, because of memory limits. Please select a lower width or height."
             )
         
-        print(self.embeddingdict)
+        print(" ".join(self.embeddingdict.keys()))
 
         for token, tokens in self.embeddingdict.items():
             try:
