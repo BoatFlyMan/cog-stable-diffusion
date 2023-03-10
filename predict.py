@@ -58,8 +58,6 @@ class Predictor(BasePredictor):
 
         t.start()
 
-        #install_embedding(self.pipe, self.embeddingdict, model_id="bad-hands-5", url="https://cdn.discordapp.com/attachments/1032948846197747731/1069660323709190195/bad-hands-5.pt", mode="other")
-
     @torch.inference_mode()
     def predict(
         self,
@@ -96,13 +94,13 @@ class Predictor(BasePredictor):
             default=1,
         ),
         num_inference_steps: int = Input(
-            description="Number of denoising steps", ge=1, le=500, default=20
+            description="Number of denoising steps", ge=1, le=150, default=20
         ),
         guidance_scale: float = Input(
             description="Scale for classifier-free guidance", ge=1, le=20, default=7.5
         ),
         scheduler: str = Input(
-            default="DPMSolverMultistep",
+            default="DDIM",
             choices=[
                 "DDIM",
                 "K_EULER",
@@ -205,46 +203,6 @@ def make_scheduler(name, config):
         "DPMSolverMultistep": DPMSolverMultistepScheduler.from_config(config),
     }[name]
 
-def load_learned_embed_in_clip(learned_embeds_path, text_encoder, tokenizer, tokename=None):
-    loaded_learned_embeds = torch.load(learned_embeds_path, map_location="cpu")
-    
-    # separate token and the embeds
-    trained_token = list(loaded_learned_embeds.keys())[0]
-    embeds = loaded_learned_embeds[trained_token]
-
-    # cast to dtype of text_encoder
-    dtype = text_encoder.get_input_embeddings().weight.dtype
-    embeds.to(dtype)
-    
-    num_tokens = embeds.shape[0]
-
-    token = [f"{tokename}-{i}" for i in range(num_tokens)]
-
-    num_added_tokens = tokenizer.add_tokens(token)
-    if num_added_tokens == 0:
-        raise ValueError(
-            f"The tokenizer already contains the token {token}. Please pass a different `token` that is not already in the tokenizer."
-        )
-
-    print("added tokens!!")
-    #logger.info("added %s tokens", num_added_tokens)
-    
-    # resize the token embeddings
-    text_encoder.resize_token_embeddings(len(tokenizer))
-
-    if len(embeds.shape) == 2:
-        for i in range(embeds.shape[0]):
-            layer_embeds = embeds[i]
-            layer_token = token[i]
-            print("embedding vector for layer")
-            token_id = tokenizer.convert_tokens_to_ids(layer_token)
-            text_encoder.get_input_embeddings().weight.data[token_id] = layer_embeds
-    else:
-        token_id = tokenizer.convert_tokens_to_ids(token)
-        text_encoder.get_input_embeddings().weight.data[token_id] = embeds
-
-    return token
-
 def st_embedding(pipe, path, tokename):
     data = torch.load(path, map_location="cpu") #safetensors.torch.load_file(path, device="cpu")
     if 'string_to_param' in data:
@@ -292,7 +250,7 @@ def st_embedding(pipe, path, tokename):
     return token
 
 def add_embedding(pipe, learned_embeds_path, embdict, token=None):
-    tokens = st_embedding(pipe, learned_embeds_path, token)#load_learned_embed_in_clip(learned_embeds_path, pipe.text_encoder, pipe.tokenizer, token)
+    tokens = st_embedding(pipe, learned_embeds_path, token)
     embdict["<" + token + ">"] = tokens
     return
 
@@ -334,8 +292,6 @@ def install_embedding(pipe, embeddingdict, model_id, model_name=None, filename=N
 
     try:
         add_embedding(pipe, f"{model_id}/{filename}", embeddingdict, token_name)
-        #load_learned_embed_in_clip(f"{model_id}/EasyNegative.pt", self.pipe.text_encoder, self.pipe.tokenizer, token_name)
-        #st_embedding(self.pipe, f"{model_id}/EasyNegative.safetensors")
     except Exception as e: 
         raise Exception("\nFailed loading: \n\n" + repr(e))
 
@@ -348,7 +304,7 @@ def greeting():
     while True:
         #print('Hello World')
         predictant = rep_model.versions.get(rep_model.versions.list()[0].id)
-        predictant.predict(prompt="a 19th century portrait of a gentleman", skip=True)
+        predictant.predict(prompt="a", skip=True)
         yield from asyncio.sleep(160)
 
 def loop_in_thread(loop):
