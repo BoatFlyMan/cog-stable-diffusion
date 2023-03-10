@@ -48,10 +48,12 @@ class Predictor(BasePredictor):
             torch_dtype=torch.float16,
         ).to("cuda")
 
-        install_embedding(self.pipe, self.embeddingdict, model_id="datasets/Nerfgun3/bad_prompt", model_name="bad_prompt_version2")
-        install_embedding(self.pipe, self.embeddingdict, model_id="LarryAIDraw/corneo_mercy")
-        install_embedding(self.pipe, self.embeddingdict, model_id="datasets/gsdf/EasyNegative")
-        install_embedding(self.pipe, self.embeddingdict, model_id="yesyeahvh/bad-hands-5")
+        #install_embedding(self.pipe, self.embeddingdict, model_id="datasets/Nerfgun3/bad_prompt", model_name="bad_prompt_version2")
+        #install_embedding(self.pipe, self.embeddingdict, model_id="LarryAIDraw/corneo_mercy")
+        #install_embedding(self.pipe, self.embeddingdict, model_id="datasets/gsdf/EasyNegative")
+        #install_embedding(self.pipe, self.embeddingdict, model_id="yesyeahvh/bad-hands-5")
+
+        install_local_embeddings(self.pipe, self.embeddingdict)
 
         loop = asyncio.get_event_loop()
         t = threading.Thread(target=loop_in_thread, args=(loop,))
@@ -132,10 +134,11 @@ class Predictor(BasePredictor):
             self.currentmodel = model
 
             self.embeddingdict = {}
-            install_embedding(self.pipe, self.embeddingdict, model_id="datasets/Nerfgun3/bad_prompt", model_name="bad_prompt_version2")
-            install_embedding(self.pipe, self.embeddingdict, model_id="LarryAIDraw/corneo_mercy")
-            install_embedding(self.pipe, self.embeddingdict, model_id="datasets/gsdf/EasyNegative")
-            install_embedding(self.pipe, self.embeddingdict, model_id="yesyeahvh/bad-hands-5")
+            #install_embedding(self.pipe, self.embeddingdict, model_id="datasets/Nerfgun3/bad_prompt", model_name="bad_prompt_version2")
+            #install_embedding(self.pipe, self.embeddingdict, model_id="LarryAIDraw/corneo_mercy")
+            #install_embedding(self.pipe, self.embeddingdict, model_id="datasets/gsdf/EasyNegative")
+            #install_embedding(self.pipe, self.embeddingdict, model_id="yesyeahvh/bad-hands-5")
+            install_local_embeddings(self.pipe, self.embeddingdict)
             print("Changed model")
         if seed is None or seed is -1:
             seed = int.from_bytes(os.urandom(2), "big")
@@ -289,11 +292,24 @@ def install_embedding(pipe, embeddingdict, model_id, model_name=None, filename=N
         #token_identifier = f"https://huggingface.co/{model_id}/raw/main/token_identifier.txt"
         #response = requests.get(token_identifier)
         token_name = model_name#"corneo_mercy"
+    elif mode == "file":
+        if model_name == None:
+            model_name = model_id
+        if filename == None:
+            filename = model_name + ".pt"
+        model_id = "embeds"
+        token_name = model_name
 
     try:
         add_embedding(pipe, f"{model_id}/{filename}", embeddingdict, token_name)
     except Exception as e: 
         raise Exception("\nFailed loading: \n\n" + repr(e))
+
+def install_local_embeddings(pipe, embeddingdict):
+    for filename in os.listdir("embeds"):
+        if filename.endswith(".pt"):
+            model_id = filename.split(".")[0]
+            install_embedding(pipe, embeddingdict, model_id, model_name=model_id, filename=filename, mode="file")
 
 replicate = rep.Client(api_token="baaef59acec40a2837918a7e430fa0c4cdbb241a")
 
