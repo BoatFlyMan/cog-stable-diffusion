@@ -5,6 +5,7 @@ import torch
 from cog import BasePredictor, Input, Path
 from diffusers import (
     StableDiffusionPipeline,
+    StableDiffusionImg2ImgPipeline,
     DiffusionPipeline,
     PNDMScheduler,
     LMSDiscreteScheduler,
@@ -14,7 +15,7 @@ from diffusers import (
     DPMSolverMultistepScheduler,
 )
 
-import subprocess 
+import subprocess
 import requests
 import wget
 
@@ -27,8 +28,16 @@ import replicate as rep
 
 import random
 
-MODEL_ID = "ckpt/anything-v4.5-vae-swapped"#"runwayml/stable-diffusion-v1-5"
+from lora_diffusion import LoRAManager, monkeypatch_remove_lora
+from t2i_adapters import Adapter
+from t2i_adapters import patch_pipe as patch_pipe_t2i_adapter
+
+from PIL import Image
+
+MODEL_ID = "Sgiuowa/grapelatest"#"runwayml/stable-diffusion-v1-5"
 MODEL_CACHE = "diffusers-cache"
+
+MODE = "IMAGE"
 
 
 class Predictor(BasePredictor):
@@ -39,14 +48,14 @@ class Predictor(BasePredictor):
         """Load the model into memory to make running multiple predictions efficient"""
         subprocess.run("python3 script/download-weights", shell=True, check=True)
         print("Loading pipeline...")
-        self.pipe = DiffusionPipeline.from_pretrained(
-            MODEL_ID,
-            safety_checker=None,
-            cache_dir=f"{MODEL_CACHE}/{MODEL_ID}",
-            local_files_only=True,
-            custom_pipeline="lpw_stable_diffusion",
-            torch_dtype=torch.float16,
-        ).to("cuda")
+        if os.path.exists(MODEL_CACHE+"/"+MODEL_ID):
+            self.pipe = DiffusionPipeline.from_pretrained(
+                pretrained_model_name_or_path="./"+MODEL_CACHE+"/"+MODEL_ID,
+                safety_checker=None,
+                local_files_only=True,
+                custom_pipeline="lpw_stable_diffusion",
+                torch_dtype=torch.float16,
+            ).to("cuda")
 
         #install_embedding(self.pipe, self.embeddingdict, model_id="datasets/Nerfgun3/bad_prompt", model_name="bad_prompt_version2")
         #install_embedding(self.pipe, self.embeddingdict, model_id="LarryAIDraw/corneo_mercy")
@@ -65,7 +74,7 @@ class Predictor(BasePredictor):
         self,
         model: str = Input(
             description="Huggingface model ID to use",
-            default="ckpt/anything-v4.5-vae-swapped"
+            default="jo32/coreml-grapefruit-vae-swapped"
         ),
         prompt: str = Input(
             description="Input prompt",
@@ -116,6 +125,7 @@ class Predictor(BasePredictor):
         seed: int = Input(
             description="Random seed. Leave blank to randomize the seed", default=None
         ),
+        init_image: Path = Input(description="Initial image to use", default=None),
         skip: bool = Input(description="Skip your", default=False),
     ) -> List[Path]:
             # Run a single prediction on the model
@@ -124,13 +134,12 @@ class Predictor(BasePredictor):
         if model != self.currentmodel:
             print("Changing model: " + self.currentmodel + " ==> " + model)
             self.pipe = DiffusionPipeline.from_pretrained(
-                model,
-                safety_checker=None,
-                cache_dir=f"{MODEL_CACHE}/{model}",
-                #local_files_only=True,
-                custom_pipeline="lpw_stable_diffusion",
-                torch_dtype=torch.float16,
-            ).to("cuda")
+                    pretrained_model_name_or_path="./"+MODEL_CACHE+"/"+model,
+                    safety_checker=None,
+                    #cache_dir=f"{MODEL_CACHE}/{model}",
+                    custom_pipeline="lpw_stable_diffusion",
+                    torch_dtype=torch.float16,
+                ).to("cuda")
             self.currentmodel = model
 
             self.embeddingdict = {}
@@ -155,35 +164,51 @@ class Predictor(BasePredictor):
             try:
                 prompt = prompt.replace(token, ", ".join(tokens))
             except:
-                print("promt replace failed")
+                pass
+                #print("promt replace failed")
             try:
                 negative_prompt = negative_prompt.replace(token, ", ".join(tokens))
             except:
-                print("neg promt replace failed")
+                pass
+                #print("neg promt replace failed")
 
         print(prompt)
         print(negative_prompt)
 
+        extra_kwargs = {}
+
+        if MODE=="IMAGE":
+            extra_kwargs = {
+                "image": Image.open(init_image).convert("RGB"),
+                "strength": prompt_strength,
+            }
+
         self.pipe.scheduler = make_scheduler(scheduler, self.pipe.scheduler.config)
 
         generator = torch.Generator("cuda").manual_seed(seed)
-        output = self.pipe(
-            prompt=[prompt] * num_outputs if prompt is not None else None,
-            negative_prompt=[negative_prompt] * num_outputs
-            if negative_prompt is not None
-            else None,
-            width=width,
-            height=height,
-            guidance_scale=guidance_scale,
-            generator=generator,
-            num_inference_steps=num_inference_steps,
-        )
+        if init_image == None:
+            output = self.pipe.text2img(
+                prompt=[prompt] * num_outputs if prompt is not None else None,
+                negative_prompt=[negative_prompt] * num_outputs if negative_prompt is not None else None,
+                width=width,
+                height=height,
+                guidance_scale=guidance_scale,
+                generator=generator,
+                num_inference_steps=num_inference_steps,
+                **extra_kwargs,
+            )
+        else:
+            output = self.pipe.img2img(
+                prompt=[prompt] * num_outputs if prompt is not None else None,
+                negative_prompt=[negative_prompt] * num_outputs if negative_prompt is not None else None,
+                guidance_scale=guidance_scale,
+                generator=generator,
+                num_inference_steps=num_inference_steps,
+                **extra_kwargs,
+            )
 
         output_paths = []
         for i, sample in enumerate(output.images):
-            #if output.nsfw_content_detected and output.nsfw_content_detected[i]:
-            #    continue
-
             output_path = f"/tmp/out-{i}.png"
             sample.save(output_path)
             output_paths.append(Path(output_path))
@@ -243,7 +268,7 @@ def st_embedding(pipe, path, tokename):
         for i in range(embeds.shape[0]):
             layer_embeds = embeds[i]
             layer_token = token[i]
-            print("embedding vector for layer")
+            #print("embedding vector for layer")
             token_id = pipe.tokenizer.convert_tokens_to_ids(layer_token)
             pipe.text_encoder.get_input_embeddings().weight.data[token_id] = layer_embeds
     else:
@@ -313,7 +338,12 @@ def install_local_embeddings(pipe, embeddingdict):
 
 replicate = rep.Client(api_token="baaef59acec40a2837918a7e430fa0c4cdbb241a")
 
-rep_model = replicate.models.get("boatflyman/hotdog")
+rep_model = None
+
+if MODE == "TEXT":
+    rep_model = replicate.models.get("boatflyman/hotdog")
+elif MODE == "IMAGE":
+    rep_model = replicate.models.get("boatflyman/hotdogimg")
 
 @asyncio.coroutine
 def greeting():
@@ -321,7 +351,7 @@ def greeting():
         #print('Hello World')
         predictant = rep_model.versions.get(rep_model.versions.list()[0].id)
         predictant.predict(prompt="a", skip=True)
-        yield from asyncio.sleep(160)
+        yield from asyncio.sleep(98)
 
 def loop_in_thread(loop):
     asyncio.set_event_loop(loop)

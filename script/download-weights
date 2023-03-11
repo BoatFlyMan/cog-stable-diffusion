@@ -7,18 +7,21 @@ from diffusers import StableDiffusionPipeline, DiffusionPipeline
 MODEL_CACHE = "diffusers-cache"
 
 
-model_list = ["ckpt/anything-v4.5-vae-swapped", "jo32/coreml-grapefruit-vae-swapped"]
+model_list = ["Sgiuowa/grapelatest"]
 
 for model in model_list:
     #MODEL_ID = "ckpt/anything-v4.5-vae-swapped"#"jo32/coreml-grapefruit-vae-swapped"#"runwayml/stable-diffusion-v1-5"
 
-    #if os.path.exists(MODEL_CACHE):
-    #    shutil.rmtree(MODEL_CACHE)
+    if os.path.exists(MODEL_CACHE):
+        shutil.rmtree(MODEL_CACHE)
     os.makedirs(MODEL_CACHE, exist_ok=True)
 
-    DiffusionPipeline.from_pretrained(
-        model,
+    pipe = DiffusionPipeline.from_pretrained(
+        pretrained_model_name_or_path=model,
         safety_checker=None,
         custom_pipeline="lpw_stable_diffusion",
-        cache_dir=f"{MODEL_CACHE}/{model}",
+        #cache_dir=MODEL_CACHE,
     )
+
+    pipe.save_pretrained("./"+MODEL_CACHE+"/"+model)
+    #del pipe

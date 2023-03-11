@@ -2,7 +2,13 @@ build:
   gpu: true
   cuda: "11.6"
   python_version: "3.10"
+  system_packages:
+    - "ffmpeg"
+    - "libsm6"
+    - "libxext6"
   python_packages:
+    - "git+https://github.com/cloneofsimo/lora.git@85fa6e79092a007da8a5f4dbe033836e2a9db4cc"
+    - "git+https://github.com/cloneofsimo/t2i-adapter-diffusers.git@0da2e148a6af80ef2e8349cbcea8180e32835406"
     - "replicate"
     - "asyncio"
     - "safetensors"
