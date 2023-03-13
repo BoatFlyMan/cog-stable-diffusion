@@ -48,7 +48,7 @@ import copy
 MODEL_ID = "Sgiuowa/grapelatest"#"runwayml/stable-diffusion-v1-5"
 MODEL_CACHE = "diffusers-cache"
 
-MODE = "IMAGE"
+MODE = "TEXT"
 
 
 class Predictor(BasePredictor):
@@ -227,11 +227,13 @@ class Predictor(BasePredictor):
                 pass
 
         for lora in self.loralist:
+            regex = r'<lora:' + lora + r':(.*?)>'
             try:
                 compare = prompt
-                prompt = re.sub(r'<lora:' + lora + r':[^;}]*>', '', prompt)
+                prompt = re.sub(regex, '', prompt)
+                prompt = re.sub(' +', ' ', prompt)
                 if prompt != compare and lora not in self.activeloras.keys():
-                    weight = re.search('<lora:' + lora + ':(.*)>', compare).group(1)
+                    weight = re.search(regex, compare).group(1)
                     weight = float(weight)
                     self.activeloras[lora] = weight
             except Exception as e:
@@ -239,9 +241,10 @@ class Predictor(BasePredictor):
                 pass
             try:
                 compare = negative_prompt
-                negative_prompt = re.sub(r'<lora:' + lora + r':[^;}]*>', '', negative_prompt)
+                negative_prompt = re.sub(regex, '', negative_prompt)
+                negative_prompt = re.sub(' +', ' ', negative_prompt)
                 if negative_prompt != compare and lora not in self.activeloras.keys():
-                    weight = re.search('<lora:' + lora + ':(.*)>', compare).group(1)
+                    weight = re.search(regex, compare).group(1)
                     weight = float(weight)
                     self.activeloras[lora] = weight
             except Exception as e:
