@@ -255,7 +255,10 @@ class Predictor(BasePredictor):
         
         if len(self.activeloras) > 0:
 
+            st = time.time()
+            print("backing up model...")
             self.pipebackup = copy.deepcopy(self.pipe)
+            print(f"backed up in: {time.time() - st}")
 
             for lora, weight in self.activeloras.items():
                 print("Applying " + lora + " at weight " + str(weight))
